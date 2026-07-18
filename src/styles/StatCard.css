@@ -1,0 +1,44 @@
+.stat-card {
+  background: var(--background);
+  border: 1px solid var(--border);
+  border-top: 3px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.stat-card-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.stat-card-value {
+  font-family: var(--font-mono);
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.stat-card-good {
+  border-top-color: var(--success);
+}
+.stat-card-good .stat-card-value {
+  color: var(--success);
+}
+
+.stat-card-warning {
+  border-top-color: var(--orange);
+}
+.stat-card-warning .stat-card-value {
+  color: var(--orange);
+}
+
+.stat-card-danger {
+  border-top-color: var(--danger);
+}
+.stat-card-danger .stat-card-value {
+  color: var(--danger);
+}

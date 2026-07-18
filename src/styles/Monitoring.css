@@ -1,0 +1,68 @@
+.monitoring-page {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.monitoring-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 14px;
+}
+
+.monitoring-filters {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.monitoring-date-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.monitoring-date-field label {
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-secondary);
+}
+
+.monitoring-date-field input[type='date'] {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 7px 10px;
+  font-size: 12.5px;
+  font-family: var(--font-ui);
+  color: var(--text-primary);
+  background: var(--background);
+}
+
+.monitoring-export-btn {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  background: var(--primary-blue);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 8px 14px;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  height: 34px;
+}
+
+.monitoring-export-btn:hover:not(:disabled) {
+  background: var(--primary-blue-hover);
+}
+
+.monitoring-export-btn:disabled {
+  background: var(--border);
+  cursor: not-allowed;
+}

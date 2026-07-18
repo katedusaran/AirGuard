@@ -1,25 +1,19 @@
 :root {
-  /* Primary */
   --primary-blue: #3b82f6;
   --primary-blue-hover: #2f6fd8;
   --secondary-blue: #eaf4ff;
 
-  /* Accent */
   --accent-teal: #14b8a6;
 
-  /* Backgrounds */
   --background: #ffffff;
   --background-secondary: #f8fafc;
 
-  /* Borders */
   --border: #e2e8f0;
 
-  /* Text */
   --text-primary: #1e293b;
   --text-secondary: #64748b;
   --text-faint: #94a3b8;
 
-  /* Status colors — used only for air quality indicators */
   --success: #16a34a;
   --success-bg: #eafaf0;
   --warning: #ca8a04;
@@ -29,7 +23,6 @@
   --danger: #dc2626;
   --danger-bg: #fdecec;
 
-  /* Layout */
   --radius: 10px;
   --radius-sm: 8px;
   --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.04);
@@ -106,7 +99,6 @@ a {
   margin: 0 0 14px;
 }
 
-/* App shell */
 .app-shell {
   display: flex;
   min-height: 100vh;

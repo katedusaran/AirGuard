@@ -17,16 +17,20 @@
 
   ASSUMPTIONS I made to fill gaps — please confirm/correct:
   --------------------------------------------------------------
-  1. WIRING: This sketch assumes the pin map from your README:
+  1. WIRING (CONFIRMED as physically soldered):
        MQ135 A0  -> GPIO34 (via voltage divider)
        DHT22 DATA-> GPIO4
-       SIM900A TXD -> GPIO16 (RX2)   SIM900A RXD -> GPIO17 (TX2)
-       LED Red -> GPIO25  LED Yellow -> GPIO26  LED Green -> GPIO27
-     NOTE: your README's LED table used GPIO25/26/27 for Red/Yellow/
-     Green, but your Fritzing diagram wires D21/D19/D18 to the LEDs
-     instead. I followed the README/pin-map table here since that's
-     the documented "as wired" source — swap the LED_* defines below
-     if your physical build actually matches the Fritzing diagram.
+       SIM900A TXD -> GPIO32 (RX2, via voltage divider — SIM900A is
+                       5V logic, GPIO32 only tolerates 3.3V, same as
+                       it did on the original GPIO16 pin)
+       SIM900A RXD -> GPIO33 (TX2, direct)
+       LED Red -> GPIO16  LED Yellow -> GPIO17  LED Green -> GPIO19
+     NOTE: LED Red/Yellow/Green -> 16/17/19 order was NOT explicitly
+     confirmed by you — I assumed the same left-to-right ordering as
+     your original README wiring. Double check against your actual
+     solder job and tell me if it needs swapping.
+     Board confirmed via psramFound() == false, so GPIO16/17 have no
+     PSRAM conflict as general-purpose/LED pins.
   2. VOLTAGE DIVIDER RATIO: your Fritzing diagram shows 10k/10k, but
      your README's divider history says 2x10k(top)/1x10k(bottom) was
      the ratio that produced a real, sustained smoke response. I used
@@ -73,7 +77,7 @@ const char* SUPABASE_URL    = "https://YOUR_PROJECT_REF.supabase.co";
 const char* SUPABASE_APIKEY = "YOUR_SUPABASE_ANON_PUBLISHABLE_KEY";
 
 // Must match an existing row's id in the `devices` table (uuid).
-const char* DEVICE_ID_UUID = "00000000-0000-0000-0000-000000000000";
+const char* DEVICE_ID_UUID = "d97e313b-9b7e-4f22-bf9b-2a61da10e965";
 
 // Destination number for SMS alerts, E.164 format e.g. "+639171234567"
 const char* ALERT_PHONE_NUMBER = "";
@@ -85,14 +89,14 @@ const char* ALERT_PHONE_NUMBER = "";
 #define DHT_PIN     4
 #define DHT_TYPE    DHT22
 
-#define LED_RED     25
-#define LED_YELLOW  26
-#define LED_GREEN   27
+#define LED_RED     16
+#define LED_YELLOW  17
+#define LED_GREEN   19
 
 // SIM900A on UART2
 HardwareSerial sim900Serial(2);
-#define SIM900_RX_PIN 16   // ESP32 RX2 <- SIM900A TXD
-#define SIM900_TX_PIN 17   // ESP32 TX2 -> SIM900A RXD
+#define SIM900_RX_PIN 32   // ESP32 RX2 <- SIM900A TXD
+#define SIM900_TX_PIN 33   // ESP32 TX2 -> SIM900A RXD
 
 DHT dht(DHT_PIN, DHT_TYPE);
 

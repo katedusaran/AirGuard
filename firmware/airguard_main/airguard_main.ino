@@ -70,11 +70,11 @@
 // ============================================================
 // CONFIGURATION — fill these in
 // ============================================================
-const char* WIFI_SSID     = "YOUR_WIFI_SSID";
-const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
+const char* WIFI_SSID     = "BAWAL 4G ";
+const char* WIFI_PASSWORD = "CATINGAN02060820";
 
-const char* SUPABASE_URL    = "https://YOUR_PROJECT_REF.supabase.co";
-const char* SUPABASE_APIKEY = "YOUR_SUPABASE_ANON_PUBLISHABLE_KEY";
+const char* SUPABASE_URL    = "https://squzvtpnluaqzzorgdnw.supabase.co";
+const char* SUPABASE_APIKEY = "sb_publishable_CQcRxggl6JVPVvPpJOzzsw_lvvstIoB";
 
 // Must match an existing row's id in the `devices` table (uuid).
 const char* DEVICE_ID_UUID = "d97e313b-9b7e-4f22-bf9b-2a61da10e965";

@@ -21,12 +21,7 @@ The repository also contains a device firmware sketch in `firmware/airguard_main
    npm install
    ```
 
-2. Create a `.env` file in the project root with your Supabase values:
 
-   ```env
-   VITE_SUPABASE_URL=https://your-project.supabase.co
-   VITE_SUPABASE_PUBLISHABLE_KEY=your-anon-key
-   ```
 
 3. Start the development server:
 

@@ -1,3 +1,4 @@
+import { calculateHeatIndex } from '../lib/HeatIndex';
 import { classifyAirQuality } from '../lib/AirQuality';
 import '../styles/ReadingsTable.css';
 
@@ -16,18 +17,20 @@ export default function ReadingsTable({ readings }) {
               <th>Air Quality</th>
               <th>Temperature</th>
               <th>Humidity</th>
+              <th>Heat Index</th>
               <th>Status</th>
             </tr>
           </thead>
           <tbody>
             {readings.length === 0 ? (
               <tr>
-                <td colSpan={6} className="readings-table-empty">No readings yet.</td>
+                <td colSpan={7} className="readings-table-empty">No readings yet.</td>
               </tr>
             ) : (
               readings.map((r) => {
                 const date = new Date(r.created_at);
                 const c = classifyAirQuality(r.air_quality_value);
+                const heatIndex = Number(calculateHeatIndex(r.temperature, r.humidity).toFixed(1));
                 return (
                   <tr key={r.id}>
                     <td>{date.toLocaleDateString()}</td>
@@ -35,6 +38,7 @@ export default function ReadingsTable({ readings }) {
                     <td className="mono">{Math.round(r.air_quality_value)}</td>
                     <td className="mono">{r.temperature}°C</td>
                     <td className="mono">{r.humidity}%</td>
+                    <td className="mono">{heatIndex}°C</td>
                     <td>
                       <span className="readings-status" style={{ color: c.color, backgroundColor: c.bg }}>
                         {c.status}

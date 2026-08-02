@@ -1,9 +1,12 @@
+import { calculateHeatIndex } from './HeatIndex.js';
+
 export function exportSensorReadingsCSV(rows, filename = 'airguard-sensor-readings.csv') {
-  const headers = ['Date', 'Time', 'Air Quality', 'Temperature (C)', 'Humidity (%)', 'Status'];
+  const headers = ['Date', 'Time', 'Air Quality', 'Temperature (C)', 'Humidity (%)', 'Heat Index (C)', 'Status'];
   const lines = [headers.join(',')];
 
   rows.forEach((row) => {
     const date = new Date(row.created_at);
+    const heatIndex = Number(calculateHeatIndex(row.temperature, row.humidity).toFixed(1));
     lines.push(
       [
         date.toLocaleDateString(),
@@ -11,6 +14,7 @@ export function exportSensorReadingsCSV(rows, filename = 'airguard-sensor-readin
         row.air_quality_value,
         row.temperature,
         row.humidity,
+        heatIndex,
         row.air_quality_status,
       ].join(',')
     );

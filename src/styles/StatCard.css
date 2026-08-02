@@ -42,3 +42,10 @@
 .stat-card-danger .stat-card-value {
   color: var(--danger);
 }
+
+.stat-card-accent {
+  border-top-color: var(--primary-blue);
+}
+.stat-card-accent .stat-card-value {
+  color: var(--primary-blue);
+}

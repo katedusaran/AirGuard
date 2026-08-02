@@ -70,7 +70,7 @@
 // ============================================================
 // CONFIGURATION — fill these in
 // ============================================================
-const char* WIFI_SSID     = "BAWAL 4G ";
+const char* WIFI_SSID     = "AYAW CONNECT, MA HACK KA!";
 const char* WIFI_PASSWORD = "CATINGAN02060820";
 
 const char* SUPABASE_URL    = "https://squzvtpnluaqzzorgdnw.supabase.co";
@@ -105,7 +105,7 @@ DHT dht(DHT_PIN, DHT_TYPE);
 // ============================================================
 const int AQI_GOOD_MAX     = 2800;  // raw ADC <= this -> GOOD
 const int AQI_MODERATE_MAX = 3400;  // raw ADC <= this -> MODERATE
-                                     // above this      -> POOR
+                                    // above this      -> POOR
 
 // ============================================================
 // TIMING (non-blocking, millis-based)

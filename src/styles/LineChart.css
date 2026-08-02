@@ -1,5 +1,12 @@
 .line-chart {
   width: 100%;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.line-chart > div {
+  min-height: 180px;
+  width: 100%;
 }
 
 .line-chart-title {

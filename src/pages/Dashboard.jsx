@@ -5,6 +5,7 @@ import AlertsPanel from '../components/AlertsPanel.jsx';
 import ReadingsTable from '../components/ReadingsTable.jsx';
 import StatCard from '../components/StatCard.jsx';
 import { classifyAirQuality } from '../lib/AirQuality';
+import { calculateHeatIndex } from '../lib/HeatIndex';
 import '../styles/Dashboard.css';
 
 export default function Dashboard() {
@@ -15,15 +16,19 @@ export default function Dashboard() {
     new Date(r.created_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
   );
 
+  const heatIndexValues = readings.map((r) => Number(calculateHeatIndex(r.temperature, r.humidity).toFixed(1)));
+
   const series = [
     { label: 'Air Quality', values: readings.map((r) => r.air_quality_value), color: '#3b82f6', unit: ' AQI' },
     { label: 'Temperature', values: readings.map((r) => r.temperature), color: '#ea580c', unit: '°C' },
     { label: 'Humidity', values: readings.map((r) => r.humidity), color: '#14b8a6', unit: '%' },
+    { label: 'Heat Index', values: heatIndexValues, color: '#f97316', unit: '°C' },
   ];
 
   const classification = latest ? classifyAirQuality(latest.air_quality_value) : null;
   const criticalCount = readings.filter((r) => r.air_quality_status === 'Hazardous').length;
   const atRiskCount = readings.filter((r) => r.air_quality_status === 'Poor').length;
+  const latestHeatIndex = latest ? Number(calculateHeatIndex(latest.temperature, latest.humidity).toFixed(1)) : null;
 
   return (
     <div className="dashboard-page">
@@ -31,6 +36,7 @@ export default function Dashboard() {
         <StatCard label="Total Readings" value={readings.length} tone="neutral" />
         <StatCard label="At Risk (Poor)" value={atRiskCount} tone="warning" />
         <StatCard label="Critical (Hazardous)" value={criticalCount} tone="danger" />
+        <StatCard label="Heat Index" value={latestHeatIndex !== null ? `${latestHeatIndex}°C` : '—'} tone="accent" />
       </div>
 
       <div className="dashboard-grid">

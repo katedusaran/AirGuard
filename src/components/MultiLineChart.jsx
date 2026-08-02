@@ -5,12 +5,13 @@ import {
   LinearScale,
   PointElement,
   LineElement,
+  Filler,
   Tooltip,
   Legend,
 } from 'chart.js';
 import '../styles/LineChart.css';
 
-ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend);
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend, Filler);
 
 export default function MultiLineChart({ labels, series, height = 340 }) {
   // series: [{ label, values, color, unit }]
@@ -22,10 +23,15 @@ export default function MultiLineChart({ labels, series, height = 340 }) {
       label: s.label,
       data: s.values,
       borderColor: s.color,
-      backgroundColor: s.color,
+      backgroundColor: `${s.color}22`,
       borderWidth: 1.75,
-      pointRadius: 0,
-      pointHoverRadius: 3,
+      pointRadius: 3,
+      pointHoverRadius: 4,
+      pointBackgroundColor: s.color,
+      pointBorderColor: s.color,
+      pointBorderWidth: 1,
+      pointStyle: 'circle',
+      fill: true,
       tension: 0.25,
     })),
   };

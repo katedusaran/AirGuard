@@ -5,12 +5,13 @@ import {
   LinearScale,
   PointElement,
   LineElement,
+  Filler,
   Tooltip,
   Legend,
 } from 'chart.js';
 import '../styles/LineChart.css';
 
-ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend);
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend, Filler);
 
 export default function LineChart({ title, labels, values, color = '#3b82f6', unit = '', height = 240 }) {
   const data = {
@@ -21,9 +22,14 @@ export default function LineChart({ title, labels, values, color = '#3b82f6', un
         data: values,
         borderColor: color,
         backgroundColor: color,
+        fill: true,
         borderWidth: 1.75,
-        pointRadius: 0,
-        pointHoverRadius: 3,
+        pointRadius: 3,
+        pointHoverRadius: 4,
+        pointBackgroundColor: color,
+        pointBorderColor: color,
+        pointBorderWidth: 1,
+        pointStyle: 'circle',
         tension: 0.25,
       },
     ],

@@ -133,6 +133,7 @@ int   mq135Raw     = 0;
 String aqStatus     = "Good";   // Good / Moderate / Poor / Hazardous
 bool   alertActive   = false;   // true while currently in Poor or Hazardous state
 bool   sim900Ready    = false;
+String prevAqStatus = aqStatus; // track previous status to trigger immediate upload on change
 
 // ============================================================
 // SETUP
@@ -169,6 +170,15 @@ void loop() {
     readSensors();
     updateLEDs();
     printSerial();
+    // If the classification changed since the last read, trigger an immediate upload
+    if (aqStatus != prevAqStatus) {
+      Serial.printf("Status changed from %s to %s — triggering immediate upload\n", prevAqStatus.c_str(), aqStatus.c_str());
+      prevAqStatus = aqStatus;
+      uploadReading();
+      // update lastUpload to avoid an immediate duplicate periodic upload
+      lastUpload = now;
+    }
+
     handleAlertLogic();
   }
 

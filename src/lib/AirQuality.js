@@ -1,20 +1,22 @@
+// Thresholds are raw MQ135 ADC values (match firmware's classification):
+// <= 2800 -> Good, <= 3400 -> Moderate, <= 3800 -> Poor, > 3800 -> Hazardous
 export const AQI_THRESHOLDS = [
   {
-    max: 50,
+    max: 2800,
     status: 'Good',
     color: 'var(--success)',
     bg: 'var(--success-bg)',
     description: 'Air quality is satisfactory. Suitable for all outdoor and indoor activities.',
   },
   {
-    max: 100,
+    max: 3400,
     status: 'Moderate',
     color: 'var(--warning)',
     bg: 'var(--warning-bg)',
     description: 'Acceptable air quality. Unusually sensitive individuals should consider reducing prolonged exertion.',
   },
   {
-    max: 150,
+    max: 3800,
     status: 'Poor',
     color: 'var(--orange)',
     bg: 'var(--orange-bg)',

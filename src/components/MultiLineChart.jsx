@@ -11,9 +11,47 @@ import {
 } from 'chart.js';
 import '../styles/LineChart.css';
 
-ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend, Filler);
+// Plugin to draw vertical alert markers on the chart using provided indices
+const alertMarkerPlugin = {
+  id: 'alertMarkers',
+  beforeDatasetsDraw(chart, args, options) {
+    const indices = options?.indices || [];
+    if (!indices || indices.length === 0) return;
+    const ctx = chart.ctx;
+    const meta = chart.getDatasetMeta(0);
+    if (!meta || !meta.data) return;
+    const top = chart.chartArea.top;
+    const bottom = chart.chartArea.bottom;
+    ctx.save();
+    ctx.lineWidth = 1;
+    ctx.setLineDash([3, 4]);
+    indices.forEach((i) => {
+      const el = meta.data[i];
+      if (!el) return;
+      const x = el.x;
+      ctx.strokeStyle = options.color || 'rgba(220,38,38,0.9)';
+      ctx.beginPath();
+      ctx.moveTo(x, top);
+      ctx.lineTo(x, bottom);
+      ctx.stroke();
+      // small circle marker at top
+      ctx.fillStyle = options.color || 'rgba(220,38,38,0.9)';
+      ctx.beginPath();
+      ctx.arc(x, top + 6, 4, 0, Math.PI * 2);
+      ctx.fill();
+    });
+    ctx.restore();
+  },
+};
+
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend, Filler, alertMarkerPlugin);
 
 export default function MultiLineChart({ labels, series, height = 340 }) {
+  // accept alerts / indices via options prop; chart plugin will draw using options.plugins.alertMarkers.indices
+  // but we also accept direct props for convenience
+  // NOTE: we expect parent to pass `alertIndices` prop if available
+  // keep backwards compatibility
+  const alertIndices = (arguments[0] && arguments[0].alertIndices) || [];
   // series: [{ label, values, color, unit }]
   const hasData = series.some((s) => s.values.length > 0);
 
@@ -71,6 +109,11 @@ export default function MultiLineChart({ labels, series, height = 340 }) {
           },
         },
       },
+      // custom alert marker plugin options
+      alertMarkers: {
+        indices: alertIndices,
+        color: 'rgba(220,38,38,0.9)'
+      }
     },
     scales: {
       x: {

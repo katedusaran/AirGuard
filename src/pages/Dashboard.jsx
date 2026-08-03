@@ -26,9 +26,29 @@ export default function Dashboard() {
   ];
 
   const classification = latest ? classifyAirQuality(latest.air_quality_value) : null;
-  const criticalCount = readings.filter((r) => r.air_quality_status === 'Hazardous').length;
-  const atRiskCount = readings.filter((r) => r.air_quality_status === 'Poor').length;
+  // compute counts by classifying actual reading values to avoid casing/status mismatches
+  const criticalCount = readings.filter((r) => classifyAirQuality(r.air_quality_value).status === 'Hazardous').length;
+  const atRiskCount = readings.filter((r) => classifyAirQuality(r.air_quality_value).status === 'Poor').length;
   const latestHeatIndex = latest ? Number(calculateHeatIndex(latest.temperature, latest.humidity).toFixed(1)) : null;
+
+  // map alerts to nearest reading index so chart can render markers
+  const alertIndices = [];
+  if (alerts && readings && readings.length > 0) {
+    const readingTimes = readings.map((r) => new Date(r.created_at).getTime());
+    alerts.forEach((a) => {
+      const at = new Date(a.created_at).getTime();
+      let bestIdx = -1;
+      let bestDiff = Infinity;
+      readingTimes.forEach((rt, idx) => {
+        const d = Math.abs(rt - at);
+        if (d < bestDiff) {
+          bestDiff = d;
+          bestIdx = idx;
+        }
+      });
+      if (bestIdx >= 0) alertIndices.push(bestIdx);
+    });
+  }
 
   return (
     <div className="dashboard-page">
@@ -56,7 +76,7 @@ export default function Dashboard() {
             {loading ? (
               <div className="dashboard-loading">Loading sensor data…</div>
             ) : (
-              <MultiLineChart labels={labels} series={series} height={320} />
+              <MultiLineChart labels={labels} series={series} height={320} alerts={alerts} alertIndices={alertIndices} />
             )}
           </div>
         </div>

@@ -46,12 +46,7 @@ const alertMarkerPlugin = {
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend, Filler, alertMarkerPlugin);
 
-export default function MultiLineChart({ labels, series, height = 340 }) {
-  // accept alerts / indices via options prop; chart plugin will draw using options.plugins.alertMarkers.indices
-  // but we also accept direct props for convenience
-  // NOTE: we expect parent to pass `alertIndices` prop if available
-  // keep backwards compatibility
-  const alertIndices = (arguments[0] && arguments[0].alertIndices) || [];
+export default function MultiLineChart({ labels, series, height = 340, alertIndices = [] }) {
   // series: [{ label, values, color, unit }]
   const hasData = series.some((s) => s.values.length > 0);
 

@@ -7,7 +7,10 @@
   What this sketch does:
   - Reads MQ135 (air quality, raw ADC via voltage divider) and DHT22
     (temperature/humidity)
-  - Classifies air quality into GOOD / MODERATE / POOR
+  - Classifies air quality into Good / Moderate / Poor / Hazardous
+    (must be these EXACT Title-Case strings — Supabase's
+    sensor_readings_air_quality_status_check constraint only allows
+    'Good','Moderate','Poor','Hazardous', case-sensitive)
   - Drives 3 status LEDs (green/yellow/red) based on that tier
   - Uploads every reading to Supabase `sensor_readings` (over WiFi)
   - Inserts a row into `alerts` and sends an SMS via SIM900A when
@@ -70,8 +73,8 @@
 // ============================================================
 // CONFIGURATION — fill these in
 // ============================================================
-const char* WIFI_SSID     = "AYAW CONNECT, MA HACK KA!";
-const char* WIFI_PASSWORD = "CATINGAN02060820";
+const char* WIFI_SSID     = "vivo Y36";
+const char* WIFI_PASSWORD = "12345678";
 
 const char* SUPABASE_URL    = "https://squzvtpnluaqzzorgdnw.supabase.co";
 const char* SUPABASE_APIKEY = "sb_publishable_CQcRxggl6JVPVvPpJOzzsw_lvvstIoB";
@@ -80,7 +83,7 @@ const char* SUPABASE_APIKEY = "sb_publishable_CQcRxggl6JVPVvPpJOzzsw_lvvstIoB";
 const char* DEVICE_ID_UUID = "d97e313b-9b7e-4f22-bf9b-2a61da10e965";
 
 // Destination number for SMS alerts, E.164 format e.g. "+639171234567"
-const char* ALERT_PHONE_NUMBER = "";
+const char* ALERT_PHONE_NUMBER = "+63951371313";
 
 // ============================================================
 // PIN MAP (per README "as wired" table)
@@ -103,9 +106,16 @@ DHT dht(DHT_PIN, DHT_TYPE);
 // ============================================================
 // AQI THRESHOLDS — placeholders, see assumption #2/#3 above
 // ============================================================
-const int AQI_GOOD_MAX     = 2800;  // raw ADC <= this -> GOOD
-const int AQI_MODERATE_MAX = 3400;  // raw ADC <= this -> MODERATE
-                                    // above this      -> POOR
+const int AQI_GOOD_MAX      = 2800;  // raw ADC <= this -> Good
+const int AQI_MODERATE_MAX  = 3400;  // raw ADC <= this -> Moderate
+const int AQI_POOR_MAX      = 3800;  // raw ADC <= this -> Poor
+                                      // above this      -> Hazardous
+                                      // (AQI_POOR_MAX is a rough guess,
+                                      // not from your README — you'll
+                                      // want to pick a real cutoff once
+                                      // you've seen what raw ADC looks
+                                      // like during an actual hazardous
+                                      // reading, e.g. heavy smoke)
 
 // ============================================================
 // TIMING (non-blocking, millis-based)
@@ -120,8 +130,8 @@ unsigned long lastUpload = 0;
 // ============================================================
 float temperature = 0, humidity = 0;
 int   mq135Raw     = 0;
-String aqStatus     = "GOOD";   // GOOD / MODERATE / POOR
-bool   alertActive   = false;   // true while currently in POOR state
+String aqStatus     = "Good";   // Good / Moderate / Poor / Hazardous
+bool   alertActive   = false;   // true while currently in Poor or Hazardous state
 bool   sim900Ready    = false;
 
 // ============================================================
@@ -210,11 +220,13 @@ void readSensors() {
   if (!isnan(h)) humidity = h;
 
   if (mq135Raw <= AQI_GOOD_MAX) {
-    aqStatus = "GOOD";
+    aqStatus = "Good";
   } else if (mq135Raw <= AQI_MODERATE_MAX) {
-    aqStatus = "MODERATE";
+    aqStatus = "Moderate";
+  } else if (mq135Raw <= AQI_POOR_MAX) {
+    aqStatus = "Poor";
   } else {
-    aqStatus = "POOR";
+    aqStatus = "Hazardous";
   }
 }
 
@@ -233,11 +245,14 @@ void setLEDs(bool red, bool yellow, bool green) {
 }
 
 void updateLEDs() {
-  if (aqStatus == "GOOD") {
+  if (aqStatus == "Good") {
     setLEDs(false, false, true);
-  } else if (aqStatus == "MODERATE") {
+  } else if (aqStatus == "Moderate") {
     setLEDs(false, true, false);
   } else {
+    // Poor and Hazardous both map to red — only 3 LEDs exist, so there's
+    // no separate visual tier for Hazardous right now. If you want one,
+    // the easy option is blinking red for Hazardous vs solid red for Poor.
     setLEDs(true, false, false);
   }
 }
@@ -247,12 +262,12 @@ void updateLEDs() {
 // not on every read while already in that state.
 // ============================================================
 void handleAlertLogic() {
-  bool isPoorNow = (aqStatus == "POOR");
+  bool isPoorNow = (aqStatus == "Poor" || aqStatus == "Hazardous");
 
   if (isPoorNow && !alertActive) {
-    // Just entered POOR
+    // Just entered Poor or Hazardous
     alertActive = true;
-    String msg = "AirGuard ALERT: Air quality is POOR (raw " + String(mq135Raw) +
+    String msg = "AirGuard ALERT: Air quality is " + aqStatus + " (raw " + String(mq135Raw) +
                  "). Temp " + String(temperature, 1) + "C, Humidity " +
                  String(humidity, 1) + "%.";
     sendSMS(ALERT_PHONE_NUMBER, msg);
@@ -298,6 +313,9 @@ void uploadReading() {
   int code = http.POST(body);
   if (code == 201 || code == 200) {
     Serial.println("Reading uploaded.");
+  } else if (code < 0) {
+    Serial.printf("Reading upload failed, no server response (%s). Free heap: %u\n",
+                  http.errorToString(code).c_str(), ESP.getFreeHeap());
   } else {
     Serial.printf("Reading upload failed (HTTP %d): %s\n", code, http.getString().c_str());
   }
@@ -335,6 +353,9 @@ void insertAlert(String alertType, String message) {
   int code = http.POST(body);
   if (code == 201 || code == 200) {
     Serial.println("Alert row inserted.");
+  } else if (code < 0) {
+    Serial.printf("Alert insert failed, no server response (%s). Free heap: %u\n",
+                  http.errorToString(code).c_str(), ESP.getFreeHeap());
   } else {
     Serial.printf("Alert insert failed (HTTP %d): %s\n", code, http.getString().c_str());
   }

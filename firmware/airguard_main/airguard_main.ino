@@ -1,60 +1,56 @@
 /*
   ============================================================
   AirGuard — ESP32 Air Quality Monitor
-  ESP32 WROOM-32 + MQ135 + DHT22 + SIM900A + Supabase REST API
+  ESP32 WROOM-32 + MQ135 + DHT11 + SIM900A + Supabase REST API
   ============================================================
 
   What this sketch does:
-  - Reads MQ135 (air quality, raw ADC via voltage divider) and DHT22
+  - Reads MQ135 (air quality, raw ADC via voltage divider) and DHT11
     (temperature/humidity)
   - Classifies air quality into Good / Moderate / Poor / Hazardous
     (must be these EXACT Title-Case strings — Supabase's
     sensor_readings_air_quality_status_check constraint only allows
     'Good','Moderate','Poor','Hazardous', case-sensitive)
   - Drives 3 status LEDs (green/yellow/red) based on that tier
-  - Uploads every reading to Supabase `sensor_readings` (over WiFi)
+  - Uploads every reading to Supabase `sensor_readings` (over WiFi),
+    both on a periodic timer AND immediately on any status change,
+    so the dashboard doesn't lag behind the LEDs
   - Inserts a row into `alerts` and sends an SMS via SIM900A when
-    air quality crosses into POOR — and again once when it recovers
-    (no repeat-spam while still in an alert state)
-  - Updates `devices.status` / `devices.last_seen` on each cycle
+    air quality crosses into Poor/Hazardous — and again once when it
+    recovers (no repeat-spam while still in an alert state)
+  - Updates `devices.status` on each cycle
 
-  ASSUMPTIONS I made to fill gaps — please confirm/correct:
+  CONFIRMED CONFIGURATION (as of latest debugging session):
   --------------------------------------------------------------
-  1. WIRING (CONFIRMED as physically soldered):
-       MQ135 A0  -> GPIO34 (via voltage divider)
-       DHT22 DATA-> GPIO4
-       SIM900A TXD -> GPIO32 (RX2, via voltage divider — SIM900A is
-                       5V logic, GPIO32 only tolerates 3.3V, same as
-                       it did on the original GPIO16 pin)
-       SIM900A RXD -> GPIO33 (TX2, direct)
-       LED Red -> GPIO16  LED Yellow -> GPIO17  LED Green -> GPIO19
-     NOTE: LED Red/Yellow/Green -> 16/17/19 order was NOT explicitly
-     confirmed by you — I assumed the same left-to-right ordering as
-     your original README wiring. Double check against your actual
-     solder job and tell me if it needs swapping.
-     Board confirmed via psramFound() == false, so GPIO16/17 have no
-     PSRAM conflict as general-purpose/LED pins.
-  2. VOLTAGE DIVIDER RATIO: your Fritzing diagram shows 10k/10k, but
-     your README's divider history says 2x10k(top)/1x10k(bottom) was
-     the ratio that produced a real, sustained smoke response. I used
-     the 2:1 ratio's implied scaling comment below — but since your
-     README says this still needs a clean, re-verified test, treat
-     AQI_GOOD_MAX / AQI_MODERATE_MAX below as PLACEHOLDERS to replace
-     once you've re-run that clean before/after test.
-  3. AQI THRESHOLDS: used your README's tuned test_mq135.ino values
-     (2800 / 3400 raw ADC) as placeholders for GOOD/MODERATE cutoffs.
-  4. WiFi: your README/wiring diagram never mentioned WiFi, but the
-     dashboard reads from Supabase, so something has to write to it.
-     I added WiFi + Supabase REST calls directly from the ESP32
-     (same pattern as your BreatheSafe reference file) since SIM900A
-     is used here only for SMS, not data upload. If you'd rather have
-     the SIM900A do GPRS data upload instead of WiFi, say so and this
-     changes.
-  5. DEVICE_ID: must be the actual UUID of this device's row in your
-     `devices` table (not a made-up string) — Supabase's device_id
-     columns are typed uuid. Fill in DEVICE_ID_UUID below.
-  6. ALERT_PHONE_NUMBER: still blank per your README's open items —
-     fill in below.
+  - WIRING:
+      MQ135 A0    -> GPIO34 (via voltage divider)
+      DHT11 DATA  -> GPIO4 (has onboard 5.1k pull-up on this module)
+      SIM900A TXD -> GPIO32 (RX2, via voltage divider — SIM900A TXD
+                      is 5V logic, GPIO32 only tolerates 3.3V)
+      SIM900A RXD -> GPIO33 (TX2, direct — no divider needed, 3.3V
+                      reads as valid logic HIGH into SIM900A's RXD)
+      SIM900A VCC -> dedicated 5V line + 1000uF cap, NOT through ESP32
+      LED Red -> GPIO16   LED Yellow -> GPIO17   LED Green -> GPIO19
+    Board confirmed WROOM-class (psramFound() == false), no PSRAM
+    conflict on GPIO16/17.
+  - SENSOR SWAP: original DHT22 unit tested bad across multiple pins/
+    resistor checks and was replaced with a working DHT11. DHT11 has
+    wider tolerance (+/-2C, +/-5% RH) than DHT22 — noted here in case
+    this needs to be documented for defense/report purposes.
+  - SIM900A: confirmed registered (CREG: 0,1) on TNT/Smart, CSQ ~9-21
+    depending on antenna placement (weaker end of usable — keep
+    antenna near a window if SMS starts failing intermittently).
+  - AQI THRESHOLDS: still using README's tuned test_mq135.ino values
+    (2800 / 3400 raw ADC) for Good/Moderate, plus a rough placeholder
+    3800 for Poor/Hazardous split — re-verify with a clean before/
+    after smoke test once possible, these aren't final.
+  - DEVICE_ID / ALERT_PHONE_NUMBER: filled in below with confirmed
+    values from testing.
+
+  SECURITY NOTE: SUPABASE_APIKEY and ALERT_PHONE_NUMBER below are
+  plaintext in this file. Fine for now, but if this repo is ever
+  pushed to a public GitHub repo (common for capstone projects),
+  move these into a separate secrets.h that you .gitignore instead.
 
   Libraries required (Arduino IDE Library Manager):
   - DHT sensor library (Adafruit) + Adafruit Unified Sensor
@@ -71,10 +67,10 @@
 #include <DHT.h>
 
 // ============================================================
-// CONFIGURATION — fill these in
+// CONFIGURATION
 // ============================================================
-const char* WIFI_SSID     = "vivo Y36";
-const char* WIFI_PASSWORD = "12345678";
+const char* WIFI_SSID     = "K3NT0Z4K1";
+const char* WIFI_PASSWORD = "24681012";
 
 const char* SUPABASE_URL    = "https://squzvtpnluaqzzorgdnw.supabase.co";
 const char* SUPABASE_APIKEY = "sb_publishable_CQcRxggl6JVPVvPpJOzzsw_lvvstIoB";
@@ -82,15 +78,14 @@ const char* SUPABASE_APIKEY = "sb_publishable_CQcRxggl6JVPVvPpJOzzsw_lvvstIoB";
 // Must match an existing row's id in the `devices` table (uuid).
 const char* DEVICE_ID_UUID = "d97e313b-9b7e-4f22-bf9b-2a61da10e965";
 
-// Destination number for SMS alerts, E.164 format e.g. "+639171234567"
-const char* ALERT_PHONE_NUMBER = "+63951371313";
-
+// Destination number for SMS alerts, E.164 format.
+const char* ALERT_PHONE_NUMBER = "+639756011007";
 // ============================================================
-// PIN MAP (per README "as wired" table)
+// PIN MAP (confirmed as physically soldered)
 // ============================================================
 #define MQ135_PIN   34
 #define DHT_PIN     4
-#define DHT_TYPE    DHT22
+#define DHT_TYPE    DHT11
 
 #define LED_RED     16
 #define LED_YELLOW  17
@@ -104,18 +99,12 @@ HardwareSerial sim900Serial(2);
 DHT dht(DHT_PIN, DHT_TYPE);
 
 // ============================================================
-// AQI THRESHOLDS — placeholders, see assumption #2/#3 above
+// AQI THRESHOLDS — see "CONFIRMED CONFIGURATION" note above
 // ============================================================
-const int AQI_GOOD_MAX      = 2800;  // raw ADC <= this -> Good
-const int AQI_MODERATE_MAX  = 3400;  // raw ADC <= this -> Moderate
-const int AQI_POOR_MAX      = 3800;  // raw ADC <= this -> Poor
+const int AQI_GOOD_MAX      = 2900;  // raw ADC <= this -> Good
+const int AQI_MODERATE_MAX  = 3500;  // raw ADC <= this -> Moderate
+const int AQI_POOR_MAX      = 3900;  // raw ADC <= this -> Poor
                                       // above this      -> Hazardous
-                                      // (AQI_POOR_MAX is a rough guess,
-                                      // not from your README — you'll
-                                      // want to pick a real cutoff once
-                                      // you've seen what raw ADC looks
-                                      // like during an actual hazardous
-                                      // reading, e.g. heavy smoke)
 
 // ============================================================
 // TIMING (non-blocking, millis-based)
@@ -129,11 +118,11 @@ unsigned long lastUpload = 0;
 // STATE
 // ============================================================
 float temperature = 0, humidity = 0;
-int   mq135Raw     = 0;
-String aqStatus     = "Good";   // Good / Moderate / Poor / Hazardous
-bool   alertActive   = false;   // true while currently in Poor or Hazardous state
+int    mq135Raw      = 0;
+String aqStatus       = "Good";   // Good / Moderate / Poor / Hazardous
+bool   alertActive    = false;    // true while currently in Poor or Hazardous state
 bool   sim900Ready    = false;
-String prevAqStatus = aqStatus; // track previous status to trigger immediate upload on change
+String prevAqStatus   = aqStatus; // tracks previous status to trigger immediate upload on change
 
 // ============================================================
 // SETUP
@@ -150,6 +139,7 @@ void setup() {
   dht.begin();
 
   sim900Serial.begin(9600, SERIAL_8N1, SIM900_RX_PIN, SIM900_TX_PIN);
+  delay(3000); // let SIM900A finish its own power-on boot before expecting AT replies
   initSIM900A();
 
   connectWiFi();
@@ -170,13 +160,16 @@ void loop() {
     readSensors();
     updateLEDs();
     printSerial();
-    // If the classification changed since the last read, trigger an immediate upload
+
+    // If the classification changed since the last read, upload immediately
+    // instead of waiting for the next periodic cycle — keeps the dashboard
+    // in sync with what the LEDs are already showing.
     if (aqStatus != prevAqStatus) {
-      Serial.printf("Status changed from %s to %s — triggering immediate upload\n", prevAqStatus.c_str(), aqStatus.c_str());
+      Serial.printf("Status changed from %s to %s — triggering immediate upload\n",
+                    prevAqStatus.c_str(), aqStatus.c_str());
       prevAqStatus = aqStatus;
       uploadReading();
-      // update lastUpload to avoid an immediate duplicate periodic upload
-      lastUpload = now;
+      lastUpload = now; // avoid an immediate duplicate periodic upload right after
     }
 
     handleAlertLogic();
@@ -185,6 +178,9 @@ void loop() {
   if (now - lastUpload >= UPLOAD_INTERVAL) {
     lastUpload = now;
     uploadReading();
+    delay(300); // brief gap so the previous HTTPS socket fully releases
+                // before opening another — back-to-back TLS handshakes
+                // with no gap can intermittently show "connection refused"
     updateDeviceHeartbeat();
   }
 }
@@ -268,14 +264,13 @@ void updateLEDs() {
 }
 
 // ============================================================
-// ALERT LOGIC — only send SMS on transition into/out of POOR,
-// not on every read while already in that state.
+// ALERT LOGIC — only send SMS on transition into/out of Poor/
+// Hazardous, not on every read while already in that state.
 // ============================================================
 void handleAlertLogic() {
   bool isPoorNow = (aqStatus == "Poor" || aqStatus == "Hazardous");
 
   if (isPoorNow && !alertActive) {
-    // Just entered Poor or Hazardous
     alertActive = true;
     String msg = "AirGuard ALERT: Air quality is " + aqStatus + " (raw " + String(mq135Raw) +
                  "). Temp " + String(temperature, 1) + "C, Humidity " +
@@ -283,7 +278,6 @@ void handleAlertLogic() {
     sendSMS(ALERT_PHONE_NUMBER, msg);
     insertAlert("air_quality", msg);
   } else if (!isPoorNow && alertActive) {
-    // Just recovered
     alertActive = false;
     String msg = "AirGuard: Air quality has returned to " + aqStatus + ".";
     sendSMS(ALERT_PHONE_NUMBER, msg);
@@ -300,36 +294,45 @@ void uploadReading() {
     return;
   }
 
-  WiFiClientSecure client;
-  client.setInsecure();
-  HTTPClient http;
+  for (int attempt = 1; attempt <= 2; attempt++) {
+    WiFiClientSecure client;
+    client.setInsecure();
+    HTTPClient http;
 
-  http.begin(client, String(SUPABASE_URL) + "/rest/v1/sensor_readings");
-  http.addHeader("apikey", SUPABASE_APIKEY);
-  http.addHeader("Authorization", String("Bearer ") + SUPABASE_APIKEY);
-  http.addHeader("Content-Type", "application/json");
-  http.addHeader("Prefer", "return=minimal");
+    http.begin(client, String(SUPABASE_URL) + "/rest/v1/sensor_readings");
+    http.addHeader("apikey", SUPABASE_APIKEY);
+    http.addHeader("Authorization", String("Bearer ") + SUPABASE_APIKEY);
+    http.addHeader("Content-Type", "application/json");
+    http.addHeader("Prefer", "return=minimal");
 
-  JsonDocument doc;
-  doc["device_id"] = DEVICE_ID_UUID;
-  doc["air_quality_value"] = mq135Raw;
-  doc["temperature"] = temperature;
-  doc["humidity"] = humidity;
-  doc["air_quality_status"] = aqStatus;
+    JsonDocument doc;
+    doc["device_id"] = DEVICE_ID_UUID;
+    doc["air_quality_value"] = mq135Raw;
+    doc["temperature"] = temperature;
+    doc["humidity"] = humidity;
+    doc["air_quality_status"] = aqStatus;
 
-  String body;
-  serializeJson(doc, body);
+    String body;
+    serializeJson(doc, body);
 
-  int code = http.POST(body);
-  if (code == 201 || code == 200) {
-    Serial.println("Reading uploaded.");
-  } else if (code < 0) {
-    Serial.printf("Reading upload failed, no server response (%s). Free heap: %u\n",
-                  http.errorToString(code).c_str(), ESP.getFreeHeap());
-  } else {
-    Serial.printf("Reading upload failed (HTTP %d): %s\n", code, http.getString().c_str());
+    int code = http.POST(body);
+    if (code == 201 || code == 200) {
+      Serial.println("Reading uploaded.");
+      http.end();
+      return; // success, no retry needed
+    } else if (code < 0) {
+      Serial.printf("Reading upload attempt %d failed, no server response (%s). Free heap: %u\n",
+                    attempt, http.errorToString(code).c_str(), ESP.getFreeHeap());
+    } else {
+      Serial.printf("Reading upload attempt %d failed (HTTP %d): %s\n",
+                    attempt, code, http.getString().c_str());
+    }
+    http.end();
+
+    if (attempt == 1) {
+      delay(500); // brief pause before retrying once
+    }
   }
-  http.end();
 }
 
 // ============================================================
@@ -373,7 +376,8 @@ void insertAlert(String alertType, String message) {
 }
 
 // ============================================================
-// SUPABASE — update devices.status / devices.last_seen
+// SUPABASE — update devices.status (last_seen intentionally
+// NOT sent from here — see note below)
 // ============================================================
 void updateDeviceHeartbeat() {
   if (WiFi.status() != WL_CONNECTED) return;
@@ -389,23 +393,41 @@ void updateDeviceHeartbeat() {
 
   JsonDocument doc;
   doc["status"] = "online";
-  doc["last_seen"] = "now()";  // NOTE: PostgREST won't evaluate now() from
-                                // JSON body as SQL — see comment below.
+  // NOTE: last_seen is deliberately NOT sent here anymore. Sending the
+  // string "now()" (as the previous version did) gets inserted literally
+  // and Postgres rejects it as invalid input for a timestamptz column —
+  // meaning every heartbeat PATCH was likely failing silently before this
+  // fix. The correct approach: in Supabase's SQL Editor, add a trigger so
+  // last_seen auto-stamps on any UPDATE to a device row:
+  //
+  //   create or replace function set_last_seen()
+  //   returns trigger as $$
+  //   begin
+  //     new.last_seen = now();
+  //     return new;
+  //   end;
+  //   $$ language plpgsql;
+  //
+  //   create trigger devices_set_last_seen
+  //   before update on devices
+  //   for each row execute function set_last_seen();
+  //
+  // With that trigger in place, this PATCH (status only) is all the ESP32
+  // ever needs to send — last_seen updates itself automatically.
 
   String body;
   serializeJson(doc, body);
-  http.PATCH(body);
-  http.end();
 
-  // NOTE: the "now()" trick above will NOT work — PostgREST inserts it as
-  // the literal string "now()", not a SQL function call. Two real options:
-  //   1) Set a DEFAULT now() on last_seen and a BEFORE UPDATE trigger in
-  //      Postgres that stamps it automatically on every row update, so the
-  //      ESP32 doesn't need to send a timestamp at all — just PATCH status.
-  //   2) Send an actual ISO8601 timestamp string from the ESP32, which
-  //      requires NTP time sync (see BreatheSafe reference's getTimestamp()
-  //      pattern) since the ESP32 has no RTC of its own.
-  // Recommend option 1 — simplest, no need for NTP on the firmware side.
+  int code = http.PATCH(body);
+  if (code == 200 || code == 204) {
+    Serial.println("Device heartbeat updated.");
+  } else if (code < 0) {
+    Serial.printf("Heartbeat update failed, no server response (%s)\n",
+                  http.errorToString(code).c_str());
+  } else {
+    Serial.printf("Heartbeat update failed (HTTP %d): %s\n", code, http.getString().c_str());
+  }
+  http.end();
 }
 
 // ============================================================

@@ -19,6 +19,10 @@
     air quality crosses into Poor/Hazardous — and again once when it
     recovers (no repeat-spam while still in an alert state)
   - Updates `devices.status` on each cycle
+  - Fetches an active recipient list from Supabase's
+    `notification_recipients` table periodically, and sends alert SMS
+    to every active recipient instead of a single hardcoded number.
+    Falls back to ALERT_PHONE_NUMBER if the list is empty/unfetched.
 
   CONFIRMED CONFIGURATION (as of latest debugging session):
   --------------------------------------------------------------
@@ -34,18 +38,27 @@
     Board confirmed WROOM-class (psramFound() == false), no PSRAM
     conflict on GPIO16/17.
   - SENSOR SWAP: original DHT22 unit tested bad across multiple pins/
-    resistor checks and was replaced with a working DHT11. DHT11 has
-    wider tolerance (+/-2C, +/-5% RH) than DHT22 — noted here in case
-    this needs to be documented for defense/report purposes.
-  - SIM900A: confirmed registered (CREG: 0,1) on TNT/Smart, CSQ ~9-21
-    depending on antenna placement (weaker end of usable — keep
-    antenna near a window if SMS starts failing intermittently).
-  - AQI THRESHOLDS: still using README's tuned test_mq135.ino values
-    (2800 / 3400 raw ADC) for Good/Moderate, plus a rough placeholder
-    3800 for Poor/Hazardous split — re-verify with a clean before/
-    after smoke test once possible, these aren't final.
-  - DEVICE_ID / ALERT_PHONE_NUMBER: filled in below with confirmed
-    values from testing.
+    resistor checks and was replaced with a working DHT11.
+  - SIM900A: confirmed registered (CREG: 0,1) on TNT/Smart. Boot needs
+    a 3s delay after sim900Serial.begin() before sending AT — without
+    it, SIM900A can fail to respond when everything boots at once.
+  - NOTIFICATION_RECIPIENTS table (run once in Supabase SQL Editor):
+      create table notification_recipients (
+        id uuid primary key default gen_random_uuid(),
+        phone_number text not null,
+        label text,
+        active boolean not null default true,
+        created_at timestamptz not null default now()
+      );
+      alter table notification_recipients enable row level security;
+      create policy "Public insert - notification_recipients"
+        on notification_recipients for insert to public with check (true);
+      create policy "Public read - notification_recipients"
+        on notification_recipients for select to public using (true);
+      create policy "Public update - notification_recipients"
+        on notification_recipients for update to public using (true);
+      create policy "Public delete - notification_recipients"
+        on notification_recipients for delete to public using (true);
 
   SECURITY NOTE: SUPABASE_APIKEY and ALERT_PHONE_NUMBER below are
   plaintext in this file. Fine for now, but if this repo is ever
@@ -78,8 +91,10 @@ const char* SUPABASE_APIKEY = "sb_publishable_CQcRxggl6JVPVvPpJOzzsw_lvvstIoB";
 // Must match an existing row's id in the `devices` table (uuid).
 const char* DEVICE_ID_UUID = "d97e313b-9b7e-4f22-bf9b-2a61da10e965";
 
-// Destination number for SMS alerts, E.164 format.
+// Fallback destination if no active recipients are fetched from
+// Supabase yet (e.g. right after boot, or table is empty).
 const char* ALERT_PHONE_NUMBER = "+639756011007";
+
 // ============================================================
 // PIN MAP (confirmed as physically soldered)
 // ============================================================
@@ -99,7 +114,7 @@ HardwareSerial sim900Serial(2);
 DHT dht(DHT_PIN, DHT_TYPE);
 
 // ============================================================
-// AQI THRESHOLDS — see "CONFIRMED CONFIGURATION" note above
+// AQI THRESHOLDS
 // ============================================================
 const int AQI_GOOD_MAX      = 2900;  // raw ADC <= this -> Good
 const int AQI_MODERATE_MAX  = 3500;  // raw ADC <= this -> Moderate
@@ -109,10 +124,12 @@ const int AQI_POOR_MAX      = 3900;  // raw ADC <= this -> Poor
 // ============================================================
 // TIMING (non-blocking, millis-based)
 // ============================================================
-const unsigned long READ_INTERVAL   = 10000;  // sensor read cadence
-const unsigned long UPLOAD_INTERVAL = 30000;  // Supabase upload cadence
-unsigned long lastRead   = 0;
-unsigned long lastUpload = 0;
+const unsigned long READ_INTERVAL       = 10000;   // sensor read cadence
+const unsigned long UPLOAD_INTERVAL     = 30000;   // Supabase upload cadence
+const unsigned long RECIPIENT_INTERVAL  = 300000;  // re-fetch recipient list every 5 min
+unsigned long lastRead       = 0;
+unsigned long lastUpload     = 0;
+unsigned long lastRecipientFetch = 0;
 
 // ============================================================
 // STATE
@@ -123,6 +140,11 @@ String aqStatus       = "Good";   // Good / Moderate / Poor / Hazardous
 bool   alertActive    = false;    // true while currently in Poor or Hazardous state
 bool   sim900Ready    = false;
 String prevAqStatus   = aqStatus; // tracks previous status to trigger immediate upload on change
+
+// Cached recipient list, fetched periodically from Supabase
+#define MAX_RECIPIENTS 10
+String recipientNumbers[MAX_RECIPIENTS];
+int    recipientCount = 0;
 
 // ============================================================
 // SETUP
@@ -143,6 +165,11 @@ void setup() {
   initSIM900A();
 
   connectWiFi();
+
+  if (WiFi.status() == WL_CONNECTED) {
+    fetchRecipients();
+    lastRecipientFetch = millis();
+  }
 }
 
 // ============================================================
@@ -182,6 +209,11 @@ void loop() {
                 // before opening another — back-to-back TLS handshakes
                 // with no gap can intermittently show "connection refused"
     updateDeviceHeartbeat();
+  }
+
+  if (now - lastRecipientFetch >= RECIPIENT_INTERVAL) {
+    lastRecipientFetch = now;
+    fetchRecipients();
   }
 }
 
@@ -257,10 +289,81 @@ void updateLEDs() {
     setLEDs(false, true, false);
   } else {
     // Poor and Hazardous both map to red — only 3 LEDs exist, so there's
-    // no separate visual tier for Hazardous right now. If you want one,
-    // the easy option is blinking red for Hazardous vs solid red for Poor.
+    // no separate visual tier for Hazardous right now.
     setLEDs(true, false, false);
   }
+}
+
+// ============================================================
+// SUPABASE — fetch active notification recipients
+// ============================================================
+void fetchRecipients() {
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("Recipient fetch skipped: WiFi not connected");
+    return;
+  }
+
+  WiFiClientSecure client;
+  client.setInsecure();
+  HTTPClient http;
+
+  String url = String(SUPABASE_URL) +
+               "/rest/v1/notification_recipients?active=eq.true&select=phone_number";
+  http.begin(client, url);
+  http.addHeader("apikey", SUPABASE_APIKEY);
+  http.addHeader("Authorization", String("Bearer ") + SUPABASE_APIKEY);
+
+  int code = http.GET();
+  if (code == 200) {
+    String payload = http.getString();
+    JsonDocument doc;
+    DeserializationError err = deserializeJson(doc, payload);
+
+    if (err) {
+      Serial.print("Recipient fetch: JSON parse failed: ");
+      Serial.println(err.c_str());
+    } else {
+      recipientCount = 0;
+      for (JsonObject row : doc.as<JsonArray>()) {
+        if (recipientCount >= MAX_RECIPIENTS) break;
+        const char* num = row["phone_number"];
+        if (num != nullptr && strlen(num) > 0) {
+          recipientNumbers[recipientCount] = String(num);
+          recipientCount++;
+        }
+      }
+      Serial.printf("Recipient fetch: %d active recipient(s) loaded.\n", recipientCount);
+    }
+  } else if (code < 0) {
+    Serial.printf("Recipient fetch failed, no server response (%s)\n",
+                  http.errorToString(code).c_str());
+  } else {
+    Serial.printf("Recipient fetch failed (HTTP %d): %s\n", code, http.getString().c_str());
+  }
+  http.end();
+}
+
+// ============================================================
+// SMS — send to every cached recipient, falling back to
+// ALERT_PHONE_NUMBER if the list is empty
+// ============================================================
+void sendSMSToAllRecipients(String message) {
+  if (recipientCount == 0) {
+    Serial.println("No recipients loaded yet — falling back to ALERT_PHONE_NUMBER.");
+    sendSMS(ALERT_PHONE_NUMBER, message);
+    return;
+  }
+
+  int successCount = 0;
+  for (int i = 0; i < recipientCount; i++) {
+    Serial.printf("Sending SMS %d/%d to %s...\n", i + 1, recipientCount, recipientNumbers[i].c_str());
+    bool ok = sendSMS(recipientNumbers[i], message);
+    if (ok) successCount++;
+    if (i < recipientCount - 1) {
+      delay(2000); // SIM900A sends one at a time — gap avoids back-to-back send issues
+    }
+  }
+  Serial.printf("SMS broadcast complete: %d/%d succeeded.\n", successCount, recipientCount);
 }
 
 // ============================================================
@@ -275,12 +378,12 @@ void handleAlertLogic() {
     String msg = "AirGuard ALERT: Air quality is " + aqStatus + " (raw " + String(mq135Raw) +
                  "). Temp " + String(temperature, 1) + "C, Humidity " +
                  String(humidity, 1) + "%.";
-    sendSMS(ALERT_PHONE_NUMBER, msg);
+    sendSMSToAllRecipients(msg);
     insertAlert("air_quality", msg);
   } else if (!isPoorNow && alertActive) {
     alertActive = false;
     String msg = "AirGuard: Air quality has returned to " + aqStatus + ".";
-    sendSMS(ALERT_PHONE_NUMBER, msg);
+    sendSMSToAllRecipients(msg);
     insertAlert("recovery", msg);
   }
 }
@@ -377,7 +480,7 @@ void insertAlert(String alertType, String message) {
 
 // ============================================================
 // SUPABASE — update devices.status (last_seen intentionally
-// NOT sent from here — see note below)
+// NOT sent from here — needs a DB trigger, see notes above)
 // ============================================================
 void updateDeviceHeartbeat() {
   if (WiFi.status() != WL_CONNECTED) return;
@@ -393,27 +496,6 @@ void updateDeviceHeartbeat() {
 
   JsonDocument doc;
   doc["status"] = "online";
-  // NOTE: last_seen is deliberately NOT sent here anymore. Sending the
-  // string "now()" (as the previous version did) gets inserted literally
-  // and Postgres rejects it as invalid input for a timestamptz column —
-  // meaning every heartbeat PATCH was likely failing silently before this
-  // fix. The correct approach: in Supabase's SQL Editor, add a trigger so
-  // last_seen auto-stamps on any UPDATE to a device row:
-  //
-  //   create or replace function set_last_seen()
-  //   returns trigger as $$
-  //   begin
-  //     new.last_seen = now();
-  //     return new;
-  //   end;
-  //   $$ language plpgsql;
-  //
-  //   create trigger devices_set_last_seen
-  //   before update on devices
-  //   for each row execute function set_last_seen();
-  //
-  // With that trigger in place, this PATCH (status only) is all the ESP32
-  // ever needs to send — last_seen updates itself automatically.
 
   String body;
   serializeJson(doc, body);
@@ -466,7 +548,7 @@ String sim900Read(unsigned long timeout) {
 
 bool sendSMS(String phoneNumber, String message) {
   if (phoneNumber.length() == 0) {
-    Serial.println("SMS skipped: ALERT_PHONE_NUMBER is empty.");
+    Serial.println("SMS skipped: phone number is empty.");
     return false;
   }
   if (!sim900Ready) {
@@ -481,6 +563,6 @@ bool sendSMS(String phoneNumber, String message) {
 
   String r = sim900Read(10000);
   bool ok = (r.indexOf("+CMGS") != -1 || r.indexOf("OK") != -1);
-  Serial.printf("SMS %s\n", ok ? "sent." : "failed.");
+  Serial.printf("SMS to %s %s\n", phoneNumber.c_str(), ok ? "sent." : "failed.");
   return ok;
 }

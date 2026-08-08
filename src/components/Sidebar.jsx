@@ -1,12 +1,13 @@
 import { useState } from 'react';
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, Activity, Bell, Wind, Menu, X } from 'lucide-react';
+import { LayoutDashboard, Activity, Bell, Users, Wind, Menu, X } from 'lucide-react';
 import '../styles/Sidebar.css';
 
 const NAV_ITEMS = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
   { to: '/monitoring', label: 'Real-Time Monitoring', icon: Activity },
   { to: '/alerts', label: 'Alerts', icon: Bell },
+  { to: '/recipients', label: 'Recipients', icon: Users },
 ];
 
 export default function Sidebar() {

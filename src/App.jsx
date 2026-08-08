@@ -3,6 +3,7 @@ import Sidebar from './components/Sidebar.jsx';
 import Dashboard from './pages/Dashboard.jsx';
 import Monitoring from './pages/Monitoring.jsx';
 import Alerts from './pages/Alerts.jsx';
+import Recipients from './pages/Recipients.jsx';
 import './styles/Global.css';
 
 function App() {
@@ -15,6 +16,7 @@ function App() {
             <Route path="/" element={<Dashboard />} />
             <Route path="/monitoring" element={<Monitoring />} />
             <Route path="/alerts" element={<Alerts />} />
+            <Route path="/recipients" element={<Recipients />} />
           </Routes>
         </main>
       </div>

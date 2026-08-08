@@ -167,6 +167,9 @@ void setup() {
   connectWiFi();
 
   if (WiFi.status() == WL_CONNECTED) {
+    delay(1000); // let the network stack settle before the first HTTPS call —
+                 // firing immediately after "connected" can race ahead of
+                 // DHCP/DNS finishing, causing an immediate connection refusal
     fetchRecipients();
     lastRecipientFetch = millis();
   }
@@ -303,44 +306,53 @@ void fetchRecipients() {
     return;
   }
 
-  WiFiClientSecure client;
-  client.setInsecure();
-  HTTPClient http;
+  for (int attempt = 1; attempt <= 2; attempt++) {
+    WiFiClientSecure client;
+    client.setInsecure();
+    HTTPClient http;
 
-  String url = String(SUPABASE_URL) +
-               "/rest/v1/notification_recipients?active=eq.true&select=phone_number";
-  http.begin(client, url);
-  http.addHeader("apikey", SUPABASE_APIKEY);
-  http.addHeader("Authorization", String("Bearer ") + SUPABASE_APIKEY);
+    String url = String(SUPABASE_URL) +
+                 "/rest/v1/notification_recipients?active=eq.true&select=phone_number";
+    http.begin(client, url);
+    http.addHeader("apikey", SUPABASE_APIKEY);
+    http.addHeader("Authorization", String("Bearer ") + SUPABASE_APIKEY);
 
-  int code = http.GET();
-  if (code == 200) {
-    String payload = http.getString();
-    JsonDocument doc;
-    DeserializationError err = deserializeJson(doc, payload);
+    int code = http.GET();
+    if (code == 200) {
+      String payload = http.getString();
+      JsonDocument doc;
+      DeserializationError err = deserializeJson(doc, payload);
 
-    if (err) {
-      Serial.print("Recipient fetch: JSON parse failed: ");
-      Serial.println(err.c_str());
-    } else {
-      recipientCount = 0;
-      for (JsonObject row : doc.as<JsonArray>()) {
-        if (recipientCount >= MAX_RECIPIENTS) break;
-        const char* num = row["phone_number"];
-        if (num != nullptr && strlen(num) > 0) {
-          recipientNumbers[recipientCount] = String(num);
-          recipientCount++;
+      if (err) {
+        Serial.print("Recipient fetch: JSON parse failed: ");
+        Serial.println(err.c_str());
+      } else {
+        recipientCount = 0;
+        for (JsonObject row : doc.as<JsonArray>()) {
+          if (recipientCount >= MAX_RECIPIENTS) break;
+          const char* num = row["phone_number"];
+          if (num != nullptr && strlen(num) > 0) {
+            recipientNumbers[recipientCount] = String(num);
+            recipientCount++;
+          }
         }
+        Serial.printf("Recipient fetch: %d active recipient(s) loaded.\n", recipientCount);
       }
-      Serial.printf("Recipient fetch: %d active recipient(s) loaded.\n", recipientCount);
+      http.end();
+      return; // success (even if 0 recipients), no retry needed
+    } else if (code < 0) {
+      Serial.printf("Recipient fetch attempt %d failed, no server response (%s)\n",
+                    attempt, http.errorToString(code).c_str());
+    } else {
+      Serial.printf("Recipient fetch attempt %d failed (HTTP %d): %s\n",
+                    attempt, code, http.getString().c_str());
     }
-  } else if (code < 0) {
-    Serial.printf("Recipient fetch failed, no server response (%s)\n",
-                  http.errorToString(code).c_str());
-  } else {
-    Serial.printf("Recipient fetch failed (HTTP %d): %s\n", code, http.getString().c_str());
+    http.end();
+
+    if (attempt == 1) {
+      delay(500); // brief pause before retrying once
+    }
   }
-  http.end();
 }
 
 // ============================================================
